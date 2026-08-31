@@ -1,5 +1,7 @@
 # gputrace
 
+*Works great with an LLM: structured text output an agent can grep and reason over, not a GUI it has to screenshot.*
+
 Offline reader for Xcode `.gputrace` captures — the packages Xcode's Metal GPU debugger
 writes to disk. Instead of driving that GUI to answer one specific question ("is this
 array texture populated for both eyes?", "what encoder actually wrote this render
@@ -101,6 +103,16 @@ pillow`) to decode and write the PNG.
    `device-resources-*` filename from inside the capture); prints every decoded record
    whose line contains the filter text — the starting point for re-deriving a selector
    after an Xcode update changes it.
+
+## In practice
+
+![An AI coding agent session diagnosing a Metal rendering bug from an Xcode GPU capture's Summary tab, comparing render-encoder and draw-call counts between a working and a broken build](screenshot-agent-debugging.png)
+
+This is the actual motivating use case: an agent working through a real Metal rendering
+bug (here, a full-immersion visionOS build going all-black — turned out to be an alpha
+compositing issue, not the culprits ruled out first) by comparing GPU capture data
+between a working and a broken build. That comparison is a table lookup once you can
+query the capture directly instead of eyeballing screenshots of Xcode's UI.
 
 ## Status and known limitations
 
