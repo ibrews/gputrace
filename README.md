@@ -11,6 +11,13 @@ visionOS 26 capture (Xcode 26.6, 2026-08-25) and has since been exercised agains
 5.8.1 Metal captures — treat selector IDs as a starting point to re-derive per Xcode
 version, not a stable contract.
 
+![Xcode's Memory tab, showing a scrollable table of every texture and buffer in a capture](screenshot-xcode-memory.png)
+
+This is the GUI table `gputrace.py textures` / `descriptors` replaces — scrollable,
+un-filterable from a script, and one capture at a time. The same query is a one-line
+command that composes with grep, diffs across captures, or runs unattended in an agent
+loop.
+
 ## How a `.gputrace` is laid out
 
 A `.gputrace` is a directory. The interesting members:
