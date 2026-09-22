@@ -44,7 +44,9 @@ import re
 import struct
 import sys
 
-HDR = 32
+RECORD_FIXED_PREFIX = 36  # len + selector + 24 reserved bytes + kind
+MIN_RECORD_LEN = 40       # fixed prefix + NUL-terminated signature padded to 4 bytes
+MAX_RECORD_LEN = 1 << 24
 SEL_SET_LABEL = 0xffffc090      # texture setLabel:
 SEL_BUF_LABEL = 0xffffc00c      # buffer setLabel:
 SEL_DUMP = 0xffffd804           # pixel-dump manifest entry
@@ -70,18 +72,28 @@ SEL_TEX_STORAGE_MODE = 0xffffd823     # sig='Cui', empirical enum: 1=Shared, 2=M
 def records(data):
     """Yield (offset, len, selector, kind, sig, payload) for each record."""
     off, n = 8, len(data)
-    while off + HDR <= n:
+    while off + MIN_RECORD_LEN <= n:
         (ln,) = struct.unpack_from('<I', data, off)
-        if ln < HDR or ln > (1 << 24) or off + ln > n:
+        if ln < MIN_RECORD_LEN or ln > MAX_RECORD_LEN or off + ln > n:
             off += 4
             continue
+        record_end = off + ln
         sel = struct.unpack_from('<i', data, off + 4)[0]
         kind = struct.unpack_from('<I', data, off + 32)[0]
-        end = data.find(b'\0', off + 36)
-        sig = data[off + 36:end].decode('ascii', 'replace') if end > 0 else ''
-        payload = data[off + 36 + (len(sig) // 4 + 1) * 4: off + ln]
+        sig_start = off + RECORD_FIXED_PREFIX
+        sig_end = data.find(b'\0', sig_start, record_end)
+        if sig_end < 0:
+            off = record_end
+            continue
+        sig_len = sig_end - sig_start
+        payload_start = sig_start + ((sig_len + 1 + 3) // 4) * 4
+        if payload_start > record_end:
+            off = record_end
+            continue
+        sig = data[sig_start:sig_end].decode('ascii', 'replace')
+        payload = data[payload_start:record_end]
         yield off, ln, sel, kind, sig, payload
-        off += ln
+        off = record_end
 
 
 def parse_args(sig, payload):
