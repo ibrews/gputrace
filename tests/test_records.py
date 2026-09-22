@@ -1,10 +1,12 @@
 import importlib.util
+import io
 import os
 import struct
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -24,6 +26,10 @@ def make_record(signature=b"", payload=b"", selector=-1, kind=7):
     signature_field += b"\0" * (-len(signature_field) % 4)
     length = FIXED_PREFIX.size + len(signature_field) + len(payload)
     return FIXED_PREFIX.pack(length, selector, b"\0" * 24, kind) + signature_field + payload
+
+
+def signed_selector(selector):
+    return selector - (1 << 32) if selector >= (1 << 31) else selector
 
 
 class RecordBoundaryTests(unittest.TestCase):
@@ -89,6 +95,81 @@ class RecordBoundaryTests(unittest.TestCase):
         self.assertEqual(0, result.returncode)
         self.assertEqual("", result.stdout)
         self.assertEqual("", result.stderr)
+
+
+class LabelPayloadTests(unittest.TestCase):
+    def make_trace(self):
+        scratch = os.environ.get("GPUTRACE_TEST_TMPDIR")
+        if scratch:
+            Path(scratch).mkdir(parents=True, exist_ok=True)
+        return tempfile.TemporaryDirectory(dir=scratch)
+
+    def test_parse_args_refuses_missing_string_terminator(self):
+        pointer = struct.pack("<Q", 0x1234)
+        self.assertEqual([], GPUTRACE.parse_args("CS", b""))
+        self.assertEqual([], GPUTRACE.parse_args("CS", b"1234"))
+        self.assertEqual([0x1234], GPUTRACE.parse_args("CS", pointer))
+        self.assertEqual([0x1234], GPUTRACE.parse_args("CS", pointer + b"Bad"))
+        self.assertEqual([0x1234, "Good"], GPUTRACE.parse_args("CS", pointer + b"Good\0"))
+
+    def test_incomplete_cs_labels_are_skipped_by_all_consumers(self):
+        pointer = struct.pack("<Q", 0x1234)
+        for payload in (b"", b"1234", pointer, pointer + b"Bad"):
+            with self.subTest(payload=payload), self.make_trace() as temp_dir:
+                trace = Path(temp_dir)
+                resource_record = make_record(
+                    signature=b"CS",
+                    payload=payload,
+                    selector=signed_selector(GPUTRACE.SEL_SET_LABEL),
+                )
+                encoder_record = make_record(
+                    signature=b"CS",
+                    payload=payload,
+                    selector=signed_selector(GPUTRACE.SEL_ENC_LABEL),
+                )
+                (trace / "device-resources-synthetic").write_bytes(PREAMBLE + resource_record)
+                (trace / "capture").write_bytes(PREAMBLE + encoder_record)
+
+                self.assertEqual({}, GPUTRACE.inventory(str(trace)))
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    GPUTRACE.cmd_descriptors(str(trace))
+                    GPUTRACE.cmd_encoders(str(trace))
+                self.assertEqual("", output.getvalue())
+
+    def test_valid_labels_and_encoder_output_are_preserved(self):
+        pointer = 0x1234
+        label_payload = struct.pack("<Q", pointer) + b"Good\0"
+        label_record = make_record(
+            signature=b"CS",
+            payload=label_payload,
+            selector=signed_selector(GPUTRACE.SEL_SET_LABEL),
+        )
+        dump_payload = struct.pack("<QII", pointer, 2, 3) + b"MTLTexture-synthetic"
+        dump_record = make_record(
+            payload=dump_payload,
+            selector=signed_selector(GPUTRACE.SEL_DUMP),
+        )
+        encoder_record = make_record(
+            signature=b"CS",
+            payload=label_payload,
+            selector=signed_selector(GPUTRACE.SEL_ENC_LABEL),
+        )
+
+        with self.make_trace() as temp_dir:
+            trace = Path(temp_dir)
+            (trace / "device-resources-synthetic").write_bytes(
+                PREAMBLE + label_record + dump_record
+            )
+            (trace / "capture").write_bytes(PREAMBLE + encoder_record)
+
+            inventory = GPUTRACE.inventory(str(trace))
+            self.assertEqual(["Good"], list(inventory))
+            self.assertEqual("MTLTexture-synthetic", inventory["Good"][0]["file"])
+            output = io.StringIO()
+            with redirect_stdout(output):
+                GPUTRACE.cmd_encoders(str(trace))
+            self.assertEqual("\nGood\n", output.getvalue())
 
 
 if __name__ == "__main__":

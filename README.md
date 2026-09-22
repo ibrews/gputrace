@@ -126,9 +126,9 @@ query the capture directly instead of eyeballing screenshots of Xcode's UI.
 - Externally-owned swap-chain textures (e.g. a compositor's final output buffer) have no
   creation-descriptor record and are silently skipped by `descriptors` — that's a
   property of what Xcode records, not a parsing gap.
-- Record recovery is best-effort: malformed or truncated records are skipped, and
-  signatures stay within their declared record boundaries. This does not validate the
-  integrity of the whole capture.
+- Record recovery is best-effort: malformed or truncated records and incomplete label
+  payloads are skipped, and signatures stay within their declared record boundaries.
+  This does not validate the integrity of the whole capture.
 - Read-only. There is no write/patch support, and none is planned.
 
 ## License

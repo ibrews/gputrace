@@ -104,6 +104,8 @@ def parse_args(sig, payload):
                 out.append(struct.unpack_from('<Q', payload, p)[0]); p += 8
             elif c == 'S':
                 e = payload.find(b'\0', p)
+                if e < 0:
+                    break
                 out.append(payload[p:e].decode('utf-8', 'replace')); p = e + 1
             elif c in 'ui':
                 out.append(struct.unpack_from('<I', payload, p)[0]); p += 4
@@ -122,7 +124,8 @@ def device_resources(trace):
     hits = glob.glob(os.path.join(trace, 'device-resources-*'))
     if not hits:
         raise SystemExit('no device-resources-* in %s' % trace)
-    return open(hits[0], 'rb').read()
+    with open(hits[0], 'rb') as stream:
+        return stream.read()
 
 
 def inventory(trace):
@@ -132,8 +135,11 @@ def inventory(trace):
     for _o, _l, sel, _k, sig, pl in records(data):
         u = sel & 0xffffffff
         if u in (SEL_SET_LABEL, SEL_BUF_LABEL) and sig == 'CS':
-            ptr = struct.unpack_from('<Q', pl, 0)[0]
-            labels[ptr] = pl[8:pl.find(b'\0', 8)].decode('utf-8', 'replace')
+            args = parse_args(sig, pl)
+            if len(args) < 2:
+                continue
+            ptr, label = args
+            labels[ptr] = label
         elif u == SEL_DUMP:
             m = re.search(rb'MTLTexture-[0-9A-Za-z\-]+', pl)
             if not m:
@@ -203,8 +209,11 @@ def cmd_descriptors(trace):
     for _o, _l, sel, _k, sig, pl in records(data):
         u = sel & 0xffffffff
         if u == SEL_SET_LABEL and sig == 'CS':
-            ptr = struct.unpack_from('<Q', pl, 0)[0]
-            labels[ptr] = pl[8:pl.find(b'\0', 8)].decode('utf-8', 'replace')
+            args = parse_args(sig, pl)
+            if len(args) < 2:
+                continue
+            ptr, label = args
+            labels[ptr] = label
         elif u == SEL_TEX_ALLOCATED_SIZE and sig == 'Cui':
             ptr, val = parse_args(sig, pl)
             alloc_size[ptr] = val
@@ -228,12 +237,16 @@ def cmd_textures(trace):
 
 
 def cmd_encoders(trace):
-    data = open(os.path.join(trace, 'capture'), 'rb').read()
+    with open(os.path.join(trace, 'capture'), 'rb') as stream:
+        data = stream.read()
     for _o, _l, sel, _k, sig, pl in records(data):
         u = sel & 0xffffffff
         if sig != 'CS':
             continue
-        s = parse_args(sig, pl)[1]
+        args = parse_args(sig, pl)
+        if len(args) < 2:
+            continue
+        s = args[1]
         if u == SEL_ENC_LABEL:
             print('\n' + s)
         elif u in (SEL_DEBUG_GROUP, SEL_SCOPE):
