@@ -110,6 +110,7 @@ class LabelPayloadTests(unittest.TestCase):
         self.assertEqual([], GPUTRACE.parse_args("CS", b"1234"))
         self.assertEqual([0x1234], GPUTRACE.parse_args("CS", pointer))
         self.assertEqual([0x1234], GPUTRACE.parse_args("CS", pointer + b"Bad"))
+        self.assertEqual([0x1234, ""], GPUTRACE.parse_args("CS", pointer + b"\0"))
         self.assertEqual([0x1234, "Good"], GPUTRACE.parse_args("CS", pointer + b"Good\0"))
 
     def test_incomplete_cs_labels_are_skipped_by_all_consumers(self):
